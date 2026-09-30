@@ -1,4 +1,4 @@
-name: Android CI Build
+name: Build Native NDK Binary
 
 on:
   workflow_dispatch:
@@ -8,30 +8,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Pull the actual app source files first
+    # 1. Pull the C/C++ source code
     - name: Checkout project code
       uses: actions/checkout@v4
       with:
-        ref: main # Forces GitHub to pull the code from the main repository branch
+        ref: main
 
-    # 2. Set up Java without strict dependency caching checks
-    - name: Set up Java JDK
-      uses: actions/setup-java@v4
+    # 2. Setup the Android NDK compiler environment
+    - name: Install Android NDK
+      uses: android-actions/setup-android@v3
       with:
-        java-version: '17'
-        distribution: 'temurin'
+        ndk-version: '26.1.10909125' # Installs an official Google NDK build toolchain
 
-    # 3. Grant execute permission
-    - name: Grant execute permission for gradlew
-      run: chmod +x ./gradlew
+    # 3. Compile using the NDK's build tool (ndk-build or cmake)
+    - name: Compile Exploit Binaries
+      run: |
+        if [ -f "jni/Android.mk" ] || [ -f "Android.mk" ]; then
+          ndk-build
+        elif [ -f "CMakeLists.txt" ]; then
+          mkdir build && cd build
+          cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a ..
+          make
+        else
+          echo "No standard Android NDK build files detected. Trying manual clang compilation..."
+          $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang source.c -o ghostlock
+        fi
 
-    # 4. Build the project
-    - name: Build with Gradle
-      run: ./gradlew assembleDebug
-
-    # 5. Export the finished file
-    - name: Upload Finished APK
+    # 4. Save the compiled artifacts
+    - name: Upload Compiled Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ghostlock-app
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: ghostlock-binaries
+        path: |
+          libs/
+          build/
+          ghostlock
