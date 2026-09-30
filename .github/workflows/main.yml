@@ -1,29 +1,35 @@
 name: Android CI Build
 
 on:
-  workflow_dispatch: # Allows you to manually click a button to build it
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+    # 1. Pull the actual app source files first
     - name: Checkout project code
       uses: actions/checkout@v4
+      with:
+        ref: main # Forces GitHub to pull the code from the main repository branch
 
+    # 2. Set up Java without strict dependency caching checks
     - name: Set up Java JDK
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: 'gradle'
 
+    # 3. Grant execute permission
     - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+      run: chmod +x ./gradlew
 
+    # 4. Build the project
     - name: Build with Gradle
       run: ./gradlew assembleDebug
 
+    # 5. Export the finished file
     - name: Upload Finished APK
       uses: actions/upload-artifact@v4
       with:
