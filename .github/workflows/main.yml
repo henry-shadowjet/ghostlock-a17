@@ -14,7 +14,7 @@ jobs:
       with:
         ref: main
 
-    # 2. Compile using the runner's pre-installed Android NDK
+    # 2. Force compile the exact target binaries explicitly
     - name: Compile Exploit Binaries
       run: |
         export ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME
@@ -22,41 +22,40 @@ jobs:
         
         mkdir -p $GITHUB_WORKSPACE/output_binaries
 
-        # Check for automated build layout configurations
-        if [ -f "jni/Android.mk" ] || [ -f "Android.mk" ]; then
-          $ANDROID_NDK_ROOT/ndk-build
-          cp -r libs/* $GITHUB_WORKSPACE/output_binaries/ || true
-          
-        elif [ -f "CMakeLists.txt" ]; then
-          mkdir -p build && cd build
-          cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a ..
-          make
-          cp * $GITHUB_WORKSPACE/output_binaries/ 2>/dev/null || true
-          
+        echo "=== Direct Targeting Compilation ==="
+
+        # 1. Compile the main ghostlock exploit tool
+        # (Locating the main exploit entry file dynamically if named uniquely)
+        MAIN_EXPLOIT_FILE=$(find . -maxdepth 1 -name "*.c" ! -name "g4*" | head -n 1)
+        if [ ! -z "$MAIN_EXPLOIT_FILE" ]; then
+          echo "Compiling Main Exploit: $MAIN_EXPLOIT_FILE -> ghostlock"
+          aarch64-linux-android34-clang $MAIN_EXPLOIT_FILE -o $GITHUB_WORKSPACE/output_binaries/ghostlock
         else
-          echo "No config files found. Compiling base files individually..."
-          
-          # Isolates and compiles only the main source files in the root folder,
-          # avoiding collision with the secondary 'qemu-e2e' main functions.
-          if [ -f "main.c" ] || [ -f "exploit.c" ]; then
-             aarch64-linux-android34-clang *.c -o $GITHUB_WORKSPACE/output_binaries/ghostlock_exploit
-          else
-             echo "Compiling all top-level tools..."
-             for f in *.c; do
-               [ -f "$f" ] || continue
-               aarch64-linux-android34-clang "$f" -o "$GITHUB_WORKSPACE/output_binaries/${f%.c}" || true
-             done
-          fi
-          
-          # Separately compile the qemu files into their own individual binaries
-          if [ -d "qemu-e2e" ]; then
-            echo "Compiling peripheral tools..."
-            aarch64-linux-android34-clang qemu-e2e/fake_sh.c -o $GITHUB_WORKSPACE/output_binaries/fake_sh || true
-            aarch64-linux-android34-clang qemu-e2e/init_e2e.c -o $GITHUB_WORKSPACE/output_binaries/init_e2e || true
-          fi
+          echo "Compiling fallback root code -> ghostlock"
+          aarch64-linux-android34-clang *.c -o $GITHUB_WORKSPACE/output_binaries/ghostlock || true
         fi
 
-    # 3. Export the resulting files
+        # 2. Compile the g4d daemon tool if the file exists
+        G4D_SOURCE=$(find . -name "*g4d*.c" -o -name "*daemon*.c" | head -n 1)
+        if [ ! -z "$G4D_SOURCE" ]; then
+          echo "Compiling Daemon: $G4D_SOURCE -> g4d"
+          aarch64-linux-android34-clang $G4D_SOURCE -o $GITHUB_WORKSPACE/output_binaries/g4d
+        fi
+
+        # 3. Compile the g4sh shell client if the file exists
+        G4SH_SOURCE=$(find . -name "*g4sh*.c" -o -name "*shell*.c" | head -n 1)
+        if [ ! -z "$G4SH_SOURCE" ]; then
+          echo "Compiling Shell Client: $G4SH_SOURCE -> g4sh"
+          aarch64-linux-android34-clang $G4SH_SOURCE -o $GITHUB_WORKSPACE/output_binaries/g4sh
+        fi
+
+        # 4. Compile peripheral qemu test components just in case
+        if [ -d "qemu-e2e" ]; then
+          aarch64-linux-android34-clang qemu-e2e/fake_sh.c -o $GITHUB_WORKSPACE/output_binaries/fake_sh || true
+          aarch64-linux-android34-clang qemu-e2e/init_e2e.c -o $GITHUB_WORKSPACE/output_binaries/init_e2e || true
+        fi
+
+    # 3. Export the explicit binary package
     - name: Upload Compiled Binary
       uses: actions/upload-artifact@v4
       with:
