@@ -8,33 +8,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Pull the C source code
+    # 1. Pull the exploit source code
     - name: Checkout project code
       uses: actions/checkout@v4
       with:
         ref: main
 
-    # 2. Download and unpack a clean standalone Android NDK using curl
-    - name: Download Standalone Android NDK
-      run: |
-        echo "Downloading Android NDK..."
-        curl -L -o android-ndk-r26b-linux.zip https://google.com
-        
-        if [ ! -f "android-ndk-r26b-linux.zip" ]; then
-          echo "Error: Download failed!"
-          exit 1
-        fi
-        
-        echo "Unpacking NDK..."
-        unzip -q android-ndk-r26b-linux.zip
-        echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26b" >> $GITHUB_ENV
-
-    # 3. Compile using the NDK's native build tools
+    # 2. Compile using the runner's pre-installed Android NDK
     - name: Compile Exploit Binaries
       run: |
+        # Use the pre-loaded Android NDK path on the GitHub runner
+        export ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME
         export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
         
-        # Check for standard NDK build files
+        echo "Using NDK located at: $ANDROID_NDK_ROOT"
+
+        # Check for standard NDK build layouts
         if [ -f "jni/Android.mk" ] || [ -f "Android.mk" ]; then
           $ANDROID_NDK_ROOT/ndk-build
         elif [ -f "CMakeLists.txt" ]; then
@@ -42,12 +31,12 @@ jobs:
           cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a ..
           make
         else
-          echo "No automated build script found. Attempting a direct manual compile..."
-          # Locates any .c files to compile into an ARM64 Android executable binary
-          aarch64-linux-android34-clang *.c -o ghostlock_exploit || echo "Direct compilation skipped or failed."
+          echo "No automated build script found. Attempting manual aarch64 compilation..."
+          # Compiles any local .c source files into a standalone ARM64 Linux/Android executable 
+          aarch64-linux-android34-clang *.c -o ghostlock_exploit || echo "Compilation bypassed or skipped."
         fi
 
-    # 4. Save the compiled output
+    # 3. Export the resulting files
     - name: Upload Compiled Binary
       uses: actions/upload-artifact@v4
       with:
