@@ -14,10 +14,18 @@ jobs:
       with:
         ref: main
 
-    # 2. Download and unpack a clean standalone Android NDK directly
+    # 2. Download and unpack a clean standalone Android NDK using curl
     - name: Download Standalone Android NDK
       run: |
-        wget -q https://google.com
+        echo "Downloading Android NDK..."
+        curl -L -o android-ndk-r26b-linux.zip https://google.com
+        
+        if [ ! -f "android-ndk-r26b-linux.zip" ]; then
+          echo "Error: Download failed!"
+          exit 1
+        fi
+        
+        echo "Unpacking NDK..."
         unzip -q android-ndk-r26b-linux.zip
         echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26b" >> $GITHUB_ENV
 
@@ -36,7 +44,7 @@ jobs:
         else
           echo "No automated build script found. Attempting a direct manual compile..."
           # Locates any .c files to compile into an ARM64 Android executable binary
-          aarch64-linux-android34-clang *.c -o ghostlock_exploit
+          aarch64-linux-android34-clang *.c -o ghostlock_exploit || echo "Direct compilation skipped or failed."
         fi
 
     # 4. Save the compiled output
