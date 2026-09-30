@@ -14,46 +14,49 @@ jobs:
       with:
         ref: main
 
-    # 2. Map files and run the compiler
+    # 2. Compile using the runner's pre-installed Android NDK
     - name: Compile Exploit Binaries
       run: |
-        # Use the pre-loaded Android NDK path on the GitHub runner
         export ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME
         export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
         
-        echo "=== Checking Repository Layout ==="
-        ls -R
-        echo "=================================="
+        mkdir -p $GITHUB_WORKSPACE/output_binaries
 
-        # Look for source files dynamically
-        C_FILE=$(find . -name "*.c" | head -n 1)
-        C_DIR=$(dirname "$C_FILE")
-
+        # Check for automated build layout configurations
         if [ -f "jni/Android.mk" ] || [ -f "Android.mk" ]; then
-          echo "Found Android.mk layout. Running ndk-build..."
           $ANDROID_NDK_ROOT/ndk-build
-          mkdir -p $GITHUB_WORKSPACE/output_binaries
           cp -r libs/* $GITHUB_WORKSPACE/output_binaries/ || true
-        elif [ -f "CMakeLists.txt" ] || [ -f "$C_DIR/CMakeLists.txt" ]; then
-          echo "Found CMake layout. Processing configuration..."
-          TARGET_DIR=$(dirname $(find . -name "CMakeLists.txt" | head -n 1))
-          cd "$TARGET_DIR"
+          
+        elif [ -f "CMakeLists.txt" ]; then
           mkdir -p build && cd build
           cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a ..
           make
-          mkdir -p $GITHUB_WORKSPACE/output_binaries
           cp * $GITHUB_WORKSPACE/output_binaries/ 2>/dev/null || true
-        elif [ ! -z "$C_FILE" ]; then
-          echo "No build layout found, but C file found at: $C_FILE. Attempting raw compilation..."
-          mkdir -p $GITHUB_WORKSPACE/output_binaries
-          cd "$C_DIR"
-          aarch64-linux-android34-clang *.c -o $GITHUB_WORKSPACE/output_binaries/ghostlock_exploit
+          
         else
-          echo "ERROR: Absolutely no C source files found in this repository!"
-          exit 1
+          echo "No config files found. Compiling base files individually..."
+          
+          # Isolates and compiles only the main source files in the root folder,
+          # avoiding collision with the secondary 'qemu-e2e' main functions.
+          if [ -f "main.c" ] || [ -f "exploit.c" ]; then
+             aarch64-linux-android34-clang *.c -o $GITHUB_WORKSPACE/output_binaries/ghostlock_exploit
+          else
+             echo "Compiling all top-level tools..."
+             for f in *.c; do
+               [ -f "$f" ] || continue
+               aarch64-linux-android34-clang "$f" -o "$GITHUB_WORKSPACE/output_binaries/${f%.c}" || true
+             done
+          fi
+          
+          # Separately compile the qemu files into their own individual binaries
+          if [ -d "qemu-e2e" ]; then
+            echo "Compiling peripheral tools..."
+            aarch64-linux-android34-clang qemu-e2e/fake_sh.c -o $GITHUB_WORKSPACE/output_binaries/fake_sh || true
+            aarch64-linux-android34-clang qemu-e2e/init_e2e.c -o $GITHUB_WORKSPACE/output_binaries/init_e2e || true
+          fi
         fi
 
-    # 3. Export the resulting files from our explicit output folder
+    # 3. Export the resulting files
     - name: Upload Compiled Binary
       uses: actions/upload-artifact@v4
       with:
