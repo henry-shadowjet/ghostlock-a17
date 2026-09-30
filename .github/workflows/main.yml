@@ -8,40 +8,54 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Pull the exploit source code
+    # 1. Fetch the exploit source code
     - name: Checkout project code
       uses: actions/checkout@v4
       with:
         ref: main
 
-    # 2. Compile using the runner's pre-installed Android NDK
+    # 2. Map files and run the compiler
     - name: Compile Exploit Binaries
       run: |
         # Use the pre-loaded Android NDK path on the GitHub runner
         export ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME
         export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
         
-        echo "Using NDK located at: $ANDROID_NDK_ROOT"
+        echo "=== Checking Repository Layout ==="
+        ls -R
+        echo "=================================="
 
-        # Check for standard NDK build layouts
+        # Look for source files dynamically
+        C_FILE=$(find . -name "*.c" | head -n 1)
+        C_DIR=$(dirname "$C_FILE")
+
         if [ -f "jni/Android.mk" ] || [ -f "Android.mk" ]; then
+          echo "Found Android.mk layout. Running ndk-build..."
           $ANDROID_NDK_ROOT/ndk-build
-        elif [ -f "CMakeLists.txt" ]; then
+          mkdir -p $GITHUB_WORKSPACE/output_binaries
+          cp -r libs/* $GITHUB_WORKSPACE/output_binaries/ || true
+        elif [ -f "CMakeLists.txt" ] || [ -f "$C_DIR/CMakeLists.txt" ]; then
+          echo "Found CMake layout. Processing configuration..."
+          TARGET_DIR=$(dirname $(find . -name "CMakeLists.txt" | head -n 1))
+          cd "$TARGET_DIR"
           mkdir -p build && cd build
           cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a ..
           make
+          mkdir -p $GITHUB_WORKSPACE/output_binaries
+          cp * $GITHUB_WORKSPACE/output_binaries/ 2>/dev/null || true
+        elif [ ! -z "$C_FILE" ]; then
+          echo "No build layout found, but C file found at: $C_FILE. Attempting raw compilation..."
+          mkdir -p $GITHUB_WORKSPACE/output_binaries
+          cd "$C_DIR"
+          aarch64-linux-android34-clang *.c -o $GITHUB_WORKSPACE/output_binaries/ghostlock_exploit
         else
-          echo "No automated build script found. Attempting manual aarch64 compilation..."
-          # Compiles any local .c source files into a standalone ARM64 Linux/Android executable 
-          aarch64-linux-android34-clang *.c -o ghostlock_exploit || echo "Compilation bypassed or skipped."
+          echo "ERROR: Absolutely no C source files found in this repository!"
+          exit 1
         fi
 
-    # 3. Export the resulting files
+    # 3. Export the resulting files from our explicit output folder
     - name: Upload Compiled Binary
       uses: actions/upload-artifact@v4
       with:
         name: ghostlock-output
-        path: |
-          libs/
-          build/
-          ghostlock_exploit
+        path: ${{ github.workspace }}/output_binaries/
